@@ -1,6 +1,9 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:shopping_list/data/categories.dart';
 import 'package:shopping_list/models/grocery_item.dart';
 import 'package:shopping_list/screens/new_item_screen.dart';
+import 'package:http/http.dart' as http;
 
 class GroceryListScreen extends StatefulWidget {
   const GroceryListScreen({super.key});
@@ -10,7 +13,40 @@ class GroceryListScreen extends StatefulWidget {
 }
 
 class _GroceryListScreenState extends State<GroceryListScreen> {
-  final List<GroceryItem> groceryItems = [];
+  List<GroceryItem> groceryItems = [];
+  var isLoading = true;
+  @override
+  void initState() {
+    super.initState();
+    loadItems();
+  }
+
+  void loadItems() async {
+    final url = Uri.https(
+        "flutter-d570f-default-rtdb.firebaseio.com", "shopping-list.json");
+
+    final response = await http.get(url);
+
+    final Map<String, dynamic> listData = json.decode(response.body);
+    final List<GroceryItem> loadedItemsFromDatabase = [];
+
+    for (var item in listData.entries) {
+      final category = categories.entries.firstWhere(
+          (categoryItem) => categoryItem.value.title == item.value["category"]);
+      loadedItemsFromDatabase.add(
+        GroceryItem(
+            id: item.key,
+            name: item.value["name"],
+            quantity: item.value["quantity"],
+            category: category.value),
+      );
+    }
+    setState(() {
+      groceryItems = loadedItemsFromDatabase;
+      isLoading = false;
+    });
+  }
+
   void _addItem() async {
     final newItem = await Navigator.of(context).push<GroceryItem>(
       MaterialPageRoute(
@@ -27,10 +63,20 @@ class _GroceryListScreenState extends State<GroceryListScreen> {
     });
   }
 
-  void removeItem(GroceryItem item){
-    setState(() {
+  void removeItem(GroceryItem item) async{
+    final index = groceryItems.indexOf(item);
+     setState(() {
       groceryItems.remove(item);
     });
+
+    final url = Uri.https(
+        "flutter-d570f-default-rtdb.firebaseio.com", "shopping-list/${item.id}.json");
+    final response = await http.delete(url);
+    if (response.statusCode >=400) {
+      setState(() {
+        groceryItems.insert(index, item);
+      });
+    }
   }
 
   @override
@@ -38,7 +84,9 @@ class _GroceryListScreenState extends State<GroceryListScreen> {
     Widget content = const Center(
       child: Text("No Items Added"),
     );
-
+    if (isLoading) {
+      content = const Center(child: CircularProgressIndicator(),);
+    }
     if (groceryItems.isNotEmpty) {
       content = ListView.builder(
         itemCount: groceryItems.length,
